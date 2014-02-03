@@ -1,5 +1,6 @@
 import logging
 
+from django import VERSION
 from django.db.models.sql.constants import MULTI
 from django.db.models.sql.query import Query
 
@@ -86,13 +87,18 @@ def _setup_joins(self, pieces, opts, alias):
     """
     if not alias:
         alias = self.query.get_initial_alias()
-    field, target, opts, joins, _, _ = self.query.setup_joins(pieces,
-        opts, alias, False)
+    (field, target, opts, joins) = self.query.setup_joins(
+        pieces, opts, alias, False)[:4]
+    # Prior to 1.6, target was a single field
+    if VERSION[:2] < (1,6):
+        target = [target,]
     # We will later on need to promote those joins that were added to the
     # query afresh above.
     joins_to_promote = [j for j in joins if self.query.alias_refcount[j] < 2]
     alias = joins[-1]
-    col = getattr(target.column, "columns", [target.column])[0] # todo: ordering using only the first column in multicolumns
+    cols = []
+    for col in target:
+        cols.extend(getattr(col.column, "columns", [col.column]))
     if not field.rel:
         # To avoid inadvertent trimming of a necessary alias, use the
         # refcount to show that we are referencing a non-relation field on
@@ -103,7 +109,10 @@ def _setup_joins(self, pieces, opts, alias):
     # Ordering or distinct must not affect the returned set, and INNER
     # JOINS for nullable fields could do this.
     self.query.promote_joins(joins_to_promote)
-    return field, col, alias, joins, opts
+    if VERSION[:2] < (1,6):
+        return field, cols[0], alias, joins, opts
+    else:
+        return field, cols, alias, joins, opts
 
 
 def pre_sql_setup(self):
